@@ -65,6 +65,8 @@ function tryLogin() {
   initEditorApp();
 }
 
+/* 日期工具 */
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -183,6 +185,14 @@ function getSubjectLabel(key) {
   return subjectLabelMap[key] || key;
 }
 
+function getViewLabel(view) {
+  if (view === "day") return "日視圖";
+  if (view === "week") return "週視圖";
+  return "月視圖";
+}
+
+/* UI 初始化 */
+
 function initEditorApp() {
   document.getElementById("viewerLink").href = VIEWER_URL;
 
@@ -193,6 +203,7 @@ function initEditorApp() {
   syncSelectedSummary();
   syncCurrentCellLabel();
   setStatus("尚未儲存");
+  showCurrentSummary(null, "請先選擇時間、科目，然後讀取資料");
 }
 
 function bindControls() {
@@ -201,6 +212,8 @@ function bindControls() {
       document.querySelectorAll(".view-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       currentView = btn.dataset.view;
+      selectedTimeKey = "";
+      selectedDateForCalendar = null;
       clearCurrentRecord();
       syncPickerVisibility();
       syncSelectedSummary();
@@ -213,6 +226,7 @@ function bindControls() {
     clearCurrentRecord(false);
     syncSelectedSummary();
     syncCurrentCellLabel();
+    showCurrentSummary(null, "已切換科目，請按「讀取這一格」");
   });
 
   document.getElementById("loadCellBtn").addEventListener("click", loadCell);
@@ -238,6 +252,8 @@ function bindControls() {
     renderCalendar();
   });
 }
+
+/* URL 參數 */
 
 function applyUrlParams() {
   const params = new URLSearchParams(window.location.search);
@@ -295,6 +311,12 @@ function applyUrlParams() {
   updateDateHint();
   renderMonthCards();
   renderCalendar();
+  syncSelectedSummary();
+  syncCurrentCellLabel();
+
+  if (selectedTimeKey) {
+    showCurrentSummary(null, "已根據 viewer 帶入對應格子，請按「讀取這一格」");
+  }
 }
 
 function findMondayByMonthWeek(year, monthIndex, weekNum) {
@@ -313,12 +335,87 @@ function findMondayByMonthWeek(year, monthIndex, weekNum) {
   return null;
 }
 
+/* 狀態區 */
+
+function setStatus(text, type = "idle") {
+  const chip = document.getElementById("saveStatus");
+  chip.textContent = text;
+  chip.classList.remove("warn", "ok");
+  if (type === "warn") chip.classList.add("warn");
+  if (type === "ok") chip.classList.add("ok");
+}
+
+function setDebugLines(lines = [], type = "soft") {
+  const box = document.getElementById("debugBox");
+  if (!box) return;
+
+  if (!lines.length) {
+    box.innerHTML = `<div class="status-line soft">尚未載入</div>`;
+    return;
+  }
+
+  box.innerHTML = lines
+    .map(line => `<div class="status-line ${type}">${line}</div>`)
+    .join("");
+}
+
+function showCurrentSummary(data = null, message = "") {
+  const subjectKey = document.getElementById("subjectSelect").value;
+  const subjectLabel = getSubjectLabel(subjectKey);
+
+  const lines = [
+    `目前格子：${getViewLabel(currentView)} / ${selectedTimeKey || "未選擇"} / ${subjectLabel}`
+  ];
+
+  if (message) lines.push(message);
+
+  if (data) {
+    lines.push(`主題標題：${data.title || "未填寫"}`);
+    lines.push(`內容備註：${data.note || "未填寫"}`);
+    lines.push(`強度：${data.level || 1}`);
+    lines.push(`完成度：${data.progress ?? 0}%`);
+  }
+
+  setDebugLines(lines, data ? "ok" : "soft");
+}
+
 function clearCurrentRecord(clearForm = true) {
   currentRecord = null;
   setStatus("尚未儲存");
   if (clearForm) fillForm(null);
-  document.getElementById("debugBox").textContent = "尚未載入";
+  showCurrentSummary(null, "尚未讀取資料");
 }
+
+/* 驗證 */
+
+function validateBeforeSave() {
+  const title = document.getElementById("titleInput").value.trim();
+  const note = document.getElementById("noteInput").value.trim();
+
+  if (!selectedTimeKey) {
+    alert("請先選擇日期 / 週次 / 月份。");
+    setDebugLines(["請先選擇日期 / 週次 / 月份。"], "warn");
+    return false;
+  }
+
+  if (!title) {
+    alert("請先填寫主題標題。");
+    document.getElementById("titleInput").focus();
+    setDebugLines(["請先填寫主題標題。"], "warn");
+    return false;
+  }
+
+  if (!note) {
+    alert("請先填寫內容備註。");
+    document.getElementById("noteInput").focus();
+    setDebugLines(["請先填寫內容備註。"], "warn");
+    return false;
+  }
+
+  return true;
+}
+
+/* 選擇器 */
 
 function syncPickerVisibility() {
   const monthPickerSection = document.getElementById("monthPickerSection");
@@ -339,6 +436,8 @@ function syncPickerVisibility() {
 
 function updateDateHint() {
   const hint = document.getElementById("dateHint");
+  if (!hint) return;
+
   if (currentView === "day") {
     hint.textContent = "日模式：點某一天，time_key 會是 YYYY/MM/DD。";
   } else if (currentView === "week") {
@@ -350,6 +449,8 @@ function updateDateHint() {
 
 function renderMonthCards() {
   const grid = document.getElementById("monthCardGrid");
+  if (!grid) return;
+
   const months = getMonthList();
 
   grid.innerHTML = months.map(month => {
@@ -364,6 +465,7 @@ function renderMonthCards() {
       renderMonthCards();
       syncSelectedSummary();
       syncCurrentCellLabel();
+      showCurrentSummary(null, "已選擇月份，請按「讀取這一格」");
     });
   });
 }
@@ -371,6 +473,8 @@ function renderMonthCards() {
 function renderCalendar() {
   const title = document.getElementById("calendarTitle");
   const grid = document.getElementById("calendarGrid");
+  if (!title || !grid) return;
+
   title.textContent = monthTitle(calendarCursor);
   grid.innerHTML = "";
 
@@ -383,12 +487,19 @@ function renderCalendar() {
   const today = new Date();
 
   for (let i = 0; i < 42; i++) {
-    const d = new Date(firstGridDate.getFullYear(), firstGridDate.getMonth(), firstGridDate.getDate() + i);
+    const d = new Date(
+      firstGridDate.getFullYear(),
+      firstGridDate.getMonth(),
+      firstGridDate.getDate() + i
+    );
+
     const inMonth = d.getMonth() === month;
     const inRange = isDateInRange(d);
-
     const isToday = sameDate(d, today);
-    const isSelectedDay = currentView === "day" && selectedDateForCalendar && sameDate(d, selectedDateForCalendar);
+    const isSelectedDay =
+      currentView === "day" &&
+      selectedDateForCalendar &&
+      sameDate(d, selectedDateForCalendar);
 
     let isWeekSelected = false;
     if (currentView === "week" && selectedDateForCalendar) {
@@ -426,6 +537,12 @@ function renderCalendar() {
       renderCalendar();
       syncSelectedSummary();
       syncCurrentCellLabel();
+
+      if (currentView === "day") {
+        showCurrentSummary(null, `已選擇日期：${selectedTimeKey}，請按「讀取這一格」`);
+      } else {
+        showCurrentSummary(null, `已選擇週次：${selectedTimeKey}，請按「讀取這一格」`);
+      }
     });
 
     grid.appendChild(btn);
@@ -445,12 +562,6 @@ function syncSelectedSummary() {
   box.textContent = `目前選擇：${getViewLabel(currentView)} / ${selectedTimeKey} / ${subjectLabel}`;
 }
 
-function getViewLabel(view) {
-  if (view === "day") return "日視圖";
-  if (view === "week") return "週視圖";
-  return "月視圖";
-}
-
 function syncCurrentCellLabel() {
   const label = document.getElementById("currentCellLabel");
   const subjectKey = document.getElementById("subjectSelect").value;
@@ -464,34 +575,38 @@ function syncCurrentCellLabel() {
   label.textContent = `${getViewLabel(currentView)} / ${selectedTimeKey} / ${subjectLabel}`;
 }
 
-function setStatus(text, type = "idle") {
-  const chip = document.getElementById("saveStatus");
-  chip.textContent = text;
-  chip.classList.remove("warn", "ok");
-  if (type === "warn") chip.classList.add("warn");
-  if (type === "ok") chip.classList.add("ok");
-}
+/* 表單 */
 
 function fillForm(data) {
   currentRecord = data;
+
   document.getElementById("titleInput").value = data?.title || "";
   document.getElementById("noteInput").value = data?.note || "";
   document.getElementById("levelInput").value = data?.level?.toString() || "1";
   document.getElementById("progressInput").value = data?.progress?.toString() || "0";
-  document.getElementById("progressLabel").textContent = `${document.getElementById("progressInput").value}%`;
-  document.getElementById("debugBox").textContent = data ? JSON.stringify(data, null, 2) : "尚未載入";
+  document.getElementById("progressLabel").textContent =
+    `${document.getElementById("progressInput").value}%`;
+
+  if (data) {
+    showCurrentSummary(data, "已載入這一格的資料");
+  } else {
+    showCurrentSummary(null, "目前這一格還沒有資料");
+  }
 }
+
+/* 資料庫 */
 
 async function loadCell() {
   if (!selectedTimeKey) {
     alert("請先選擇日期 / 週次 / 月份。");
+    setDebugLines(["請先選擇日期 / 週次 / 月份。"], "warn");
     return;
   }
 
   const subjectKey = document.getElementById("subjectSelect").value;
 
   setStatus("讀取中…");
-  document.getElementById("debugBox").textContent = "讀取中…";
+  setDebugLines(["讀取中…"], "soft");
 
   const { data, error } = await db
     .from("study_plan_cells")
@@ -504,7 +619,12 @@ async function loadCell() {
   if (error && error.code !== "PGRST116") {
     console.error(error);
     setStatus("讀取失敗", "warn");
-    document.getElementById("debugBox").textContent = "讀取失敗：\n" + JSON.stringify(error, null, 2);
+    setDebugLines([
+      "讀取失敗。",
+      `錯誤訊息：${error.message || "未知錯誤"}`,
+      `錯誤代碼：${error.code || "無"}`
+    ], "warn");
+    alert("讀取失敗，請查看下方狀態訊息。");
     return;
   }
 
@@ -522,26 +642,25 @@ async function loadCell() {
 async function saveCell(e) {
   e.preventDefault();
 
-  if (!selectedTimeKey) {
-    alert("請先選擇日期 / 週次 / 月份。");
-    return;
-  }
+  if (!validateBeforeSave()) return;
 
   const subjectKey = document.getElementById("subjectSelect").value;
+  const isUpdate = !!(currentRecord && currentRecord.id);
+
   const payload = {
     view_mode: currentView,
     time_key: selectedTimeKey,
     subject_key: subjectKey,
-    title: document.getElementById("titleInput").value.trim() || null,
-    note: document.getElementById("noteInput").value.trim() || null,
+    title: document.getElementById("titleInput").value.trim(),
+    note: document.getElementById("noteInput").value.trim(),
     level: Number(document.getElementById("levelInput").value) || 1,
     progress: Number(document.getElementById("progressInput").value) || 0
   };
 
   setStatus("儲存中…");
-  document.getElementById("debugBox").textContent = "儲存中…";
+  setDebugLines(["儲存中…"], "soft");
 
-  if (currentRecord && currentRecord.id) {
+  if (isUpdate) {
     const { data, error } = await db
       .from("study_plan_cells")
       .update(payload)
@@ -552,12 +671,18 @@ async function saveCell(e) {
     if (error) {
       console.error(error);
       setStatus("儲存失敗", "warn");
-      document.getElementById("debugBox").textContent = "儲存失敗：\n" + JSON.stringify(error, null, 2);
+      setDebugLines([
+        "儲存失敗。",
+        `錯誤訊息：${error.message || "未知錯誤"}`,
+        `錯誤代碼：${error.code || "無"}`
+      ], "warn");
+      alert("更新失敗，請查看下方狀態訊息。");
       return;
     }
 
     setStatus("已更新", "ok");
     fillForm(data);
+    alert("更新成功");
   } else {
     const { data, error } = await db
       .from("study_plan_cells")
@@ -568,18 +693,25 @@ async function saveCell(e) {
     if (error) {
       console.error(error);
       setStatus("新增失敗", "warn");
-      document.getElementById("debugBox").textContent = "新增失敗：\n" + JSON.stringify(error, null, 2);
+      setDebugLines([
+        "新增失敗。",
+        `錯誤訊息：${error.message || "未知錯誤"}`,
+        `錯誤代碼：${error.code || "無"}`
+      ], "warn");
+      alert("新增失敗，請查看下方狀態訊息。");
       return;
     }
 
     setStatus("新增成功", "ok");
     fillForm(data);
+    alert("新增成功");
   }
 }
 
 async function deleteCell() {
   if (!selectedTimeKey) {
     alert("請先選擇要刪除的格子。");
+    setDebugLines(["請先選擇要刪除的格子。"], "warn");
     return;
   }
 
@@ -588,7 +720,7 @@ async function deleteCell() {
   if (!confirm("確定要刪除此格資料嗎？")) return;
 
   setStatus("刪除中…");
-  document.getElementById("debugBox").textContent = "刪除中…";
+  setDebugLines(["刪除中…"], "soft");
 
   const { error } = await db
     .from("study_plan_cells")
@@ -600,10 +732,17 @@ async function deleteCell() {
   if (error) {
     console.error(error);
     setStatus("刪除失敗", "warn");
-    document.getElementById("debugBox").textContent = "刪除失敗：\n" + JSON.stringify(error, null, 2);
+    setDebugLines([
+      "刪除失敗。",
+      `錯誤訊息：${error.message || "未知錯誤"}`,
+      `錯誤代碼：${error.code || "無"}`
+    ], "warn");
+    alert("刪除失敗，請查看下方狀態訊息。");
     return;
   }
 
   setStatus("已刪除", "ok");
   fillForm(null);
+  setDebugLines(["已刪除這一格資料。"], "ok");
+  alert("刪除成功");
 }
