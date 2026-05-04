@@ -3,7 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const SUPABASE_ANON_KEY = "sb_publishable_J2LMtqJMzzte7YYxUSlsCA_bEJuaZZH";
 
   // ★★★ 這裡換成你的實際 editor GitHub Pages 網址 ★★★
-  const EDITOR_URL = "https://yourname.github.io/zhaohan-study-plan/editor.html";
+  const EDITOR_URL = "https://uk840109-tech.github.io/study-plan/editor.html";
 
   if (typeof supabase === "undefined") {
     console.error("找不到 supabase，請先在頁面載入 CDN。");
