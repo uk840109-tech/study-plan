@@ -1,23 +1,26 @@
 const SUPABASE_URL = "https://kdrhyhrumrzmrwdkgnyj.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_J2LMtqJMzzte7YYxUSlsCA_bEJuaZZH";
 const PASSWORD = "zhao01092008";
+const VIEWER_URL = "./";
 
-const SUBJECTS = ["chinese", "english", "math", "science", "society", "other"];
-
-const subjectLabels = {
+const subjectLabelMap = {
   chinese: "國文",
-  english: "英文",
-  math: "數學",
+  mathA: "數學A",
   science: "自然",
-  society: "社會",
+  english: "英文",
+  social: "社會",
   other: "其他"
 };
 
+const START_DATE = new Date(2026, 4, 1);
+const END_DATE = new Date(2027, 0, 18);
+
 let db = null;
 let currentView = "month";
-let currentTime = "";
-let currentSubject = "chinese";
-let controlsBound = false;
+let currentRecord = null;
+let selectedTimeKey = "";
+let calendarCursor = new Date(2026, 4, 1);
+let selectedDateForCalendar = null;
 
 window.addEventListener("load", () => {
   bindLogin();
@@ -27,20 +30,13 @@ function bindLogin() {
   const loginBtn = document.getElementById("loginBtn");
   const passwordInput = document.getElementById("passwordInput");
 
-  if (!loginBtn || !passwordInput) {
-    console.error("登入元件不存在");
-    return;
-  }
-
   loginBtn.addEventListener("click", tryLogin);
   passwordInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      tryLogin();
-    }
+    if (e.key === "Enter") tryLogin();
   });
 }
 
-async function tryLogin() {
+function tryLogin() {
   const passwordInput = document.getElementById("passwordInput");
   const loginError = document.getElementById("loginError");
   const loginScreen = document.getElementById("loginScreen");
@@ -53,426 +49,51 @@ async function tryLogin() {
     return;
   }
 
-  try {
-    if (!window.supabase) {
-      throw new Error("Supabase CDN 沒有載入成功");
-    }
-
-    const { createClient } = window.supabase;
-    db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  } catch (err) {
-    console.error(err);
-    loginError.textContent = "Supabase 初始化失敗，請檢查 URL / KEY / CDN";
+  if (!window.supabase) {
+    loginError.textContent = "找不到 Supabase CDN";
     return;
   }
+
+  const { createClient } = window.supabase;
+  db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   loginError.textContent = "";
   loginScreen.classList.add("hidden");
   loginScreen.style.display = "none";
   appShell.style.display = "block";
 
-  await initEditorApp();
-  window.scrollTo({ top: 0, behavior: "auto" });
+  initEditorApp();
 }
 
-async function initEditorApp() {
-  setTodayDefault();
-  bindControls();
-  applyUrlParams();
-  syncControlsFromState();
-  renderGrid();
-  await loadCellToEditorFromState();
+function pad2(n) {
+  return String(n).padStart(2, "0");
 }
 
-function setTodayDefault() {
-  const now = new Date();
-  currentTime = formatMonthKey(now);
+function cloneDate(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function bindControls() {
-  if (controlsBound) return;
-  controlsBound = true;
-
-  document.getElementById("viewSelect").addEventListener("change", async (e) => {
-    currentView = e.target.value;
-    currentTime = getDefaultTimeByView(currentView);
-    syncControlsFromState();
-    renderGrid();
-    await loadCellToEditorFromState();
-  });
-
-  document.getElementById("timeSelect").addEventListener("change", async (e) => {
-    currentTime = e.target.value;
-    renderGrid();
-    await loadCellToEditorFromState();
-  });
-
-  document.getElementById("subjectSelect").addEventListener("change", async (e) => {
-    currentSubject = e.target.value;
-    highlightSelectedCell();
-    await loadCellToEditorFromState();
-  });
-
-  document.getElementById("saveBtn").addEventListener("click", saveCurrentCell);
-  document.getElementById("deleteBtn").addEventListener("click", deleteCurrentCell);
-  document.getElementById("duplicateBtn").addEventListener("click", duplicateCurrentPeriod);
-  document.getElementById("templateBtn").addEventListener("click", createTemplatesForCurrentPeriod);
-  document.getElementById("clearPeriodBtn").addEventListener("click", clearCurrentPeriod);
-}
-
-function applyUrlParams() {
-  const params = new URLSearchParams(window.location.search);
-  const view = params.get("view");
-  const time = params.get("time");
-  const subject = params.get("subject");
-
-  if (view && ["day", "week", "month"].includes(view)) {
-    currentView = view;
-  }
-
-  if (time) {
-    currentTime = time;
-  } else {
-    currentTime = getDefaultTimeByView(currentView);
-  }
-
-  if (subject && SUBJECTS.includes(subject)) {
-    currentSubject = subject;
-  }
-}
-
-function syncControlsFromState() {
-  const viewSelect = document.getElementById("viewSelect");
-  const timeSelect = document.getElementById("timeSelect");
-  const subjectSelect = document.getElementById("subjectSelect");
-
-  viewSelect.value = currentView;
-  populateTimeOptions();
-  timeSelect.value = currentTime;
-  subjectSelect.value = currentSubject;
-}
-
-function populateTimeOptions() {
-  const timeSelect = document.getElementById("timeSelect");
-  const options = getTimeOptions(currentView);
-
-  timeSelect.innerHTML = options
-    .map(item => `<option value="${item.value}">${item.label}</option>`)
-    .join("");
-
-  if (!options.some(item => item.value === currentTime)) {
-    currentTime = options[0]?.value || "";
-    timeSelect.value = currentTime;
-  }
-}
-
-function getTimeOptions(view) {
-  const now = new Date();
-  if (view === "day") return buildDayOptions(now, 30);
-  if (view === "week") return buildWeekOptions(now, 20);
-  return buildMonthOptions(now, 18);
-}
-
-function buildDayOptions(baseDate, count) {
-  const arr = [];
-  for (let i = -7; i < count - 7; i++) {
-    const d = new Date(baseDate);
-    d.setDate(baseDate.getDate() + i);
-    arr.push({
-      value: formatDayKey(d),
-      label: formatDayLabel(d)
-    });
-  }
-  return arr;
-}
-
-function buildWeekOptions(baseDate, count) {
-  const arr = [];
-  const monday = getMonday(baseDate);
-
-  for (let i = -4; i < count - 4; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i * 7);
-    arr.push({
-      value: formatWeekKey(d),
-      label: formatWeekLabel(d)
-    });
-  }
-  return arr;
-}
-
-function buildMonthOptions(baseDate, count) {
-  const arr = [];
-  const year = baseDate.getFullYear();
-  const month = baseDate.getMonth();
-
-  for (let i = -6; i < count - 6; i++) {
-    const d = new Date(year, month + i, 1);
-    arr.push({
-      value: formatMonthKey(d),
-      label: formatMonthLabel(d)
-    });
-  }
-  return arr;
-}
-
-function getDefaultTimeByView(view) {
-  const now = new Date();
-  if (view === "day") return formatDayKey(now);
-  if (view === "week") return formatWeekKey(getMonday(now));
-  return formatMonthKey(now);
-}
-
-function renderGrid() {
-  const grid = document.getElementById("planGrid");
-  grid.innerHTML = "";
-
-  const slots = getSlotsByView(currentView, currentTime);
-
-  slots.forEach(slot => {
-    const cell = document.createElement("button");
-    cell.className = "plan-cell";
-    cell.type = "button";
-    cell.dataset.view = currentView;
-    cell.dataset.time = currentTime;
-    cell.dataset.subject = slot.subject;
-    cell.innerHTML = `
-      <div class="cell-time">${slot.label}</div>
-      <div class="cell-subject">${subjectLabels[slot.subject] || slot.subject}</div>
-    `;
-
-    cell.addEventListener("click", async () => {
-      currentSubject = slot.subject;
-      document.getElementById("subjectSelect").value = currentSubject;
-      highlightSelectedCell();
-      await loadCellToEditorFromState();
-    });
-
-    grid.appendChild(cell);
-  });
-
-  highlightSelectedCell();
-}
-
-function getSlotsByView(view, timeKey) {
-  if (view === "day") {
-    return SUBJECTS.map(subject => ({
-      label: timeKey,
-      subject
-    }));
-  }
-
-  if (view === "week") {
-    const days = getDaysFromWeekKey(timeKey);
-    const result = [];
-    days.forEach(day => {
-      SUBJECTS.forEach(subject => {
-        result.push({
-          label: day,
-          subject
-        });
-      });
-    });
-    return result;
-  }
-
-  return SUBJECTS.map(subject => ({
-    label: timeKey,
-    subject
-  }));
-}
-
-function highlightSelectedCell() {
-  const cells = document.querySelectorAll(".plan-cell");
-  cells.forEach(cell => {
-    const active =
-      cell.dataset.view === currentView &&
-      cell.dataset.time === currentTime &&
-      cell.dataset.subject === currentSubject;
-
-    cell.classList.toggle("active", active);
-  });
-}
-
-async function loadCellToEditorFromState() {
-  document.getElementById("editorTitle").textContent =
-    `${getViewLabel(currentView)}｜${currentTime}｜${subjectLabels[currentSubject] || currentSubject}`;
-
-  const { data, error } = await db
-    .from("study_plan_cells")
-    .select("content")
-    .eq("view_mode", currentView)
-    .eq("time_key", currentTime)
-    .eq("subject_key", currentSubject)
-    .limit(1);
-
-  if (error) {
-    alert("讀取失敗：" + error.message);
-    return;
-  }
-
-  const row = data && data.length > 0 ? data[0] : null;
-  document.getElementById("contentInput").value = row?.content || "";
-}
-
-async function saveCurrentCell() {
-  const content = document.getElementById("contentInput").value.trim();
-
-  const payload = {
-    view_mode: currentView,
-    time_key: currentTime,
-    subject_key: currentSubject,
-    content
-  };
-
-  const { error } = await db
-    .from("study_plan_cells")
-    .upsert(payload, { onConflict: "view_mode,time_key,subject_key" });
-
-  if (error) {
-    alert("儲存失敗：" + error.message);
-    return;
-  }
-
-  alert("儲存成功");
-}
-
-async function deleteCurrentCell() {
-  const ok = confirm(`確定刪除 ${currentTime} 的 ${subjectLabels[currentSubject]} 內容？`);
-  if (!ok) return;
-
-  const { error } = await db
-    .from("study_plan_cells")
-    .delete()
-    .eq("view_mode", currentView)
-    .eq("time_key", currentTime)
-    .eq("subject_key", currentSubject);
-
-  if (error) {
-    alert("刪除失敗：" + error.message);
-    return;
-  }
-
-  document.getElementById("contentInput").value = "";
-  alert("刪除成功");
-}
-
-async function duplicateCurrentPeriod() {
-  const targetTime = getNextTimeKey(currentView, currentTime);
-  if (!targetTime) return alert("找不到下一個時間單位");
-
-  const ok = confirm(`把 ${currentTime} 的全部科目複製到 ${targetTime}？`);
-  if (!ok) return;
-
-  const { data, error } = await db
-    .from("study_plan_cells")
-    .select("subject_key, content")
-    .eq("view_mode", currentView)
-    .eq("time_key", currentTime);
-
-  if (error) return alert("讀取來源失敗：" + error.message);
-  if (!data || data.length === 0) return alert("目前這個時間單位沒有資料可複製");
-
-  const rows = data.map(item => ({
-    view_mode: currentView,
-    time_key: targetTime,
-    subject_key: item.subject_key,
-    content: item.content
-  }));
-
-  const { error: upsertError } = await db
-    .from("study_plan_cells")
-    .upsert(rows, { onConflict: "view_mode,time_key,subject_key" });
-
-  if (upsertError) return alert("批次複製失敗：" + upsertError.message);
-
-  alert(`已複製到 ${targetTime}`);
-}
-
-async function createTemplatesForCurrentPeriod() {
-  const ok = confirm(`為 ${currentTime} 建立全部科目的空白模板？`);
-  if (!ok) return;
-
-  const rows = SUBJECTS.map(subject => ({
-    view_mode: currentView,
-    time_key: currentTime,
-    subject_key: subject,
-    content: ""
-  }));
-
-  const { error } = await db
-    .from("study_plan_cells")
-    .upsert(rows, { onConflict: "view_mode,time_key,subject_key" });
-
-  if (error) return alert("建立模板失敗：" + error.message);
-
-  alert("模板建立完成");
-}
-
-async function clearCurrentPeriod() {
-  const ok = confirm(`確定清空 ${currentTime} 的全部科目內容？`);
-  if (!ok) return;
-
-  const { error } = await db
-    .from("study_plan_cells")
-    .delete()
-    .eq("view_mode", currentView)
-    .eq("time_key", currentTime);
-
-  if (error) return alert("清空失敗：" + error.message);
-
-  document.getElementById("contentInput").value = "";
-  alert("已清空這個時間單位");
-}
-
-function getNextTimeKey(view, timeKey) {
-  if (view === "day") {
-    const d = parseDayKey(timeKey);
-    d.setDate(d.getDate() + 1);
-    return formatDayKey(d);
-  }
-
-  if (view === "week") {
-    const d = parseWeekKey(timeKey);
-    d.setDate(d.getDate() + 7);
-    return formatWeekKey(d);
-  }
-
-  const d = parseMonthKey(timeKey);
-  d.setMonth(d.getMonth() + 1);
-  return formatMonthKey(d);
-}
-
-function getViewLabel(view) {
-  if (view === "day") return "日";
-  if (view === "week") return "週";
-  return "月";
+function sameDate(a, b) {
+  return (
+    a &&
+    b &&
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
 function formatDayKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate() + 0).padStart(2, "0");
-  return `${y}/${m}/${d}`;
+  return `${date.getFullYear()}/${pad2(date.getMonth() + 1)}/${pad2(date.getDate())}`;
 }
 
 function formatMonthKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  return `${y}/${m}`;
-}
-
-function formatWeekKey(date) {
-  return formatDayKey(getMonday(date));
+  return `${date.getFullYear()}/${pad2(date.getMonth() + 1)}`;
 }
 
 function parseDayKey(str) {
   const [y, m, d] = str.split("/").map(Number);
   return new Date(y, m - 1, d);
-}
-
-function parseWeekKey(str) {
-  return parseDayKey(str);
 }
 
 function parseMonthKey(str) {
@@ -481,37 +102,508 @@ function parseMonthKey(str) {
 }
 
 function getMonday(date) {
-  const d = new Date(date);
+  const d = cloneDate(date);
   const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
   return d;
 }
 
-function getDaysFromWeekKey(weekKey) {
-  const monday = parseWeekKey(weekKey);
+function getThursday(date) {
+  const monday = getMonday(date);
+  monday.setDate(monday.getDate() + 3);
+  return monday;
+}
+
+function isDateInRange(date) {
+  const d = cloneDate(date);
+  return d >= START_DATE && d <= END_DATE;
+}
+
+function getMonthList() {
+  const result = [];
+  let y = START_DATE.getFullYear();
+  let m = START_DATE.getMonth();
+
+  while (
+    y < END_DATE.getFullYear() ||
+    (y === END_DATE.getFullYear() && m <= END_DATE.getMonth())
+  ) {
+    result.push(`${y}/${pad2(m + 1)}`);
+    m += 1;
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+  }
+  return result;
+}
+
+function getWeekKeyFromDate(date) {
+  const thursday = getThursday(date);
+  const monthKey = formatMonthKey(thursday);
+
+  let monday = getMonday(START_DATE);
+  let count = 0;
+
+  while (monday <= END_DATE) {
+    const thisThursday = getThursday(monday);
+    const thisMonthKey = formatMonthKey(thisThursday);
+
+    if (thisMonthKey === monthKey) {
+      count += 1;
+    }
+
+    if (sameDate(monday, getMonday(date))) {
+      return `${monthKey} W${count}`;
+    }
+
+    monday.setDate(monday.getDate() + 7);
+  }
+
+  return `${monthKey} W1`;
+}
+
+function getWeekDates(date) {
+  const monday = getMonday(date);
   const arr = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
+    const d = cloneDate(monday);
     d.setDate(monday.getDate() + i);
-    arr.push(formatDayKey(d));
+    arr.push(d);
   }
   return arr;
 }
 
-function formatDayLabel(date) {
-  const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
-  return `${formatDayKey(date)}（週${weekdays[date.getDay()]}）`;
+function monthTitle(date) {
+  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
 }
 
-function formatWeekLabel(mondayDate) {
-  const start = new Date(mondayDate);
-  const end = new Date(mondayDate);
-  end.setDate(start.getDate() + 6);
-  return `${formatDayKey(start)} ~ ${formatDayKey(end)}`;
+function getSubjectLabel(key) {
+  return subjectLabelMap[key] || key;
 }
 
-function formatMonthLabel(date) {
-  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}`;
+function initEditorApp() {
+  document.getElementById("viewerLink").href = VIEWER_URL;
+
+  bindControls();
+  renderMonthCards();
+  applyUrlParams();
+  syncPickerVisibility();
+  syncSelectedSummary();
+  syncCurrentCellLabel();
+  setStatus("尚未儲存");
+}
+
+function bindControls() {
+  document.querySelectorAll(".view-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".view-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentView = btn.dataset.view;
+      clearCurrentRecord();
+      syncPickerVisibility();
+      syncSelectedSummary();
+      syncCurrentCellLabel();
+      updateDateHint();
+    });
+  });
+
+  document.getElementById("subjectSelect").addEventListener("change", () => {
+    clearCurrentRecord(false);
+    syncSelectedSummary();
+    syncCurrentCellLabel();
+  });
+
+  document.getElementById("loadCellBtn").addEventListener("click", loadCell);
+  document.getElementById("editForm").addEventListener("submit", saveCell);
+  document.getElementById("deleteBtn").addEventListener("click", deleteCell);
+
+  document.getElementById("progressInput").addEventListener("input", (e) => {
+    document.getElementById("progressLabel").textContent = `${e.target.value}%`;
+  });
+
+  document.getElementById("prevMonthBtn").addEventListener("click", () => {
+    const next = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() - 1, 1);
+    if (next < new Date(START_DATE.getFullYear(), START_DATE.getMonth(), 1)) return;
+    calendarCursor = next;
+    renderCalendar();
+  });
+
+  document.getElementById("nextMonthBtn").addEventListener("click", () => {
+    const next = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() + 1, 1);
+    const maxMonth = new Date(END_DATE.getFullYear(), END_DATE.getMonth(), 1);
+    if (next > maxMonth) return;
+    calendarCursor = next;
+    renderCalendar();
+  });
+}
+
+function applyUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get("view");
+  const time = params.get("time");
+  const subject = params.get("subject");
+
+  if (view && ["month", "week", "day"].includes(view)) {
+    currentView = view;
+    document.querySelectorAll(".view-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.view === view);
+    });
+  }
+
+  if (subject) {
+    const subjectSelect = document.getElementById("subjectSelect");
+    if (subjectSelect.querySelector(`option[value="${subject}"]`)) {
+      subjectSelect.value = subject;
+    }
+  }
+
+  if (time) {
+    selectedTimeKey = time;
+
+    if (currentView === "month") {
+      const parsedMonth = parseMonthKey(time);
+      calendarCursor = parsedMonth;
+    }
+
+    if (currentView === "day") {
+      selectedDateForCalendar = parseDayKey(time);
+      calendarCursor = new Date(
+        selectedDateForCalendar.getFullYear(),
+        selectedDateForCalendar.getMonth(),
+        1
+      );
+    }
+
+    if (currentView === "week") {
+      const match = time.match(/^(\d{4})\/(\d{2}) W(\d+)$/);
+      if (match) {
+        const y = Number(match[1]);
+        const m = Number(match[2]) - 1;
+        const weekNum = Number(match[3]);
+
+        const monday = findMondayByMonthWeek(y, m, weekNum);
+        if (monday) {
+          selectedDateForCalendar = monday;
+          calendarCursor = new Date(monday.getFullYear(), monday.getMonth(), 1);
+        }
+      }
+    }
+  }
+
+  updateDateHint();
+  renderMonthCards();
+  renderCalendar();
+}
+
+function findMondayByMonthWeek(year, monthIndex, weekNum) {
+  let monday = getMonday(START_DATE);
+  let count = 0;
+
+  while (monday <= END_DATE) {
+    const thursday = getThursday(monday);
+    if (thursday.getFullYear() === year && thursday.getMonth() === monthIndex) {
+      count += 1;
+      if (count === weekNum) return cloneDate(monday);
+    }
+    monday.setDate(monday.getDate() + 7);
+  }
+
+  return null;
+}
+
+function clearCurrentRecord(clearForm = true) {
+  currentRecord = null;
+  setStatus("尚未儲存");
+  if (clearForm) fillForm(null);
+  document.getElementById("debugBox").textContent = "尚未載入";
+}
+
+function syncPickerVisibility() {
+  const monthPickerSection = document.getElementById("monthPickerSection");
+  const calendarSection = document.getElementById("calendarSection");
+
+  if (currentView === "month") {
+    monthPickerSection.style.display = "block";
+    calendarSection.style.display = "none";
+    renderMonthCards();
+  } else {
+    monthPickerSection.style.display = "none";
+    calendarSection.style.display = "block";
+    renderCalendar();
+  }
+
+  updateDateHint();
+}
+
+function updateDateHint() {
+  const hint = document.getElementById("dateHint");
+  if (currentView === "day") {
+    hint.textContent = "日模式：點某一天，time_key 會是 YYYY/MM/DD。";
+  } else if (currentView === "week") {
+    hint.textContent = "週模式：點某一天後，會自動轉成該週的 YYYY/MM Wn。";
+  } else {
+    hint.textContent = "月模式：點月份卡片，time_key 會是 YYYY/MM。";
+  }
+}
+
+function renderMonthCards() {
+  const grid = document.getElementById("monthCardGrid");
+  const months = getMonthList();
+
+  grid.innerHTML = months.map(month => {
+    const active = selectedTimeKey === month && currentView === "month" ? "active" : "";
+    return `<button type="button" class="month-card ${active}" data-month="${month}">${month}</button>`;
+  }).join("");
+
+  grid.querySelectorAll(".month-card").forEach(btn => {
+    btn.addEventListener("click", () => {
+      selectedTimeKey = btn.dataset.month;
+      clearCurrentRecord();
+      renderMonthCards();
+      syncSelectedSummary();
+      syncCurrentCellLabel();
+    });
+  });
+}
+
+function renderCalendar() {
+  const title = document.getElementById("calendarTitle");
+  const grid = document.getElementById("calendarGrid");
+  title.textContent = monthTitle(calendarCursor);
+  grid.innerHTML = "";
+
+  const year = calendarCursor.getFullYear();
+  const month = calendarCursor.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startWeekday = firstDay.getDay();
+  const firstGridDate = new Date(year, month, 1 - startWeekday);
+
+  const today = new Date();
+
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(firstGridDate.getFullYear(), firstGridDate.getMonth(), firstGridDate.getDate() + i);
+    const inMonth = d.getMonth() === month;
+    const inRange = isDateInRange(d);
+
+    const isToday = sameDate(d, today);
+    const isSelectedDay = currentView === "day" && selectedDateForCalendar && sameDate(d, selectedDateForCalendar);
+
+    let isWeekSelected = false;
+    if (currentView === "week" && selectedDateForCalendar) {
+      const weekDates = getWeekDates(selectedDateForCalendar);
+      isWeekSelected = weekDates.some(x => sameDate(x, d));
+    }
+
+    const classes = [
+      "calendar-day",
+      inMonth ? "" : "muted",
+      isToday ? "today" : "",
+      isSelectedDay ? "selected" : "",
+      isWeekSelected ? "week-selected" : ""
+    ].filter(Boolean).join(" ");
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = classes;
+    btn.innerHTML = `<span class="day-number">${d.getDate()}</span>`;
+    btn.disabled = !inRange;
+    if (!inRange) btn.classList.add("muted");
+
+    btn.addEventListener("click", () => {
+      if (!inRange) return;
+
+      selectedDateForCalendar = cloneDate(d);
+
+      if (currentView === "day") {
+        selectedTimeKey = formatDayKey(d);
+      } else if (currentView === "week") {
+        selectedTimeKey = getWeekKeyFromDate(d);
+      }
+
+      clearCurrentRecord();
+      renderCalendar();
+      syncSelectedSummary();
+      syncCurrentCellLabel();
+    });
+
+    grid.appendChild(btn);
+  }
+}
+
+function syncSelectedSummary() {
+  const box = document.getElementById("selectedSummary");
+  const subjectKey = document.getElementById("subjectSelect").value;
+  const subjectLabel = getSubjectLabel(subjectKey);
+
+  if (!selectedTimeKey) {
+    box.textContent = `目前：尚未選擇時間 / ${subjectLabel}`;
+    return;
+  }
+
+  box.textContent = `目前選擇：${getViewLabel(currentView)} / ${selectedTimeKey} / ${subjectLabel}`;
+}
+
+function getViewLabel(view) {
+  if (view === "day") return "日視圖";
+  if (view === "week") return "週視圖";
+  return "月視圖";
+}
+
+function syncCurrentCellLabel() {
+  const label = document.getElementById("currentCellLabel");
+  const subjectKey = document.getElementById("subjectSelect").value;
+  const subjectLabel = getSubjectLabel(subjectKey);
+
+  if (!selectedTimeKey) {
+    label.textContent = "尚未選擇格子";
+    return;
+  }
+
+  label.textContent = `${getViewLabel(currentView)} / ${selectedTimeKey} / ${subjectLabel}`;
+}
+
+function setStatus(text, type = "idle") {
+  const chip = document.getElementById("saveStatus");
+  chip.textContent = text;
+  chip.classList.remove("warn", "ok");
+  if (type === "warn") chip.classList.add("warn");
+  if (type === "ok") chip.classList.add("ok");
+}
+
+function fillForm(data) {
+  currentRecord = data;
+  document.getElementById("titleInput").value = data?.title || "";
+  document.getElementById("noteInput").value = data?.note || "";
+  document.getElementById("levelInput").value = data?.level?.toString() || "1";
+  document.getElementById("progressInput").value = data?.progress?.toString() || "0";
+  document.getElementById("progressLabel").textContent = `${document.getElementById("progressInput").value}%`;
+  document.getElementById("debugBox").textContent = data ? JSON.stringify(data, null, 2) : "尚未載入";
+}
+
+async function loadCell() {
+  if (!selectedTimeKey) {
+    alert("請先選擇日期 / 週次 / 月份。");
+    return;
+  }
+
+  const subjectKey = document.getElementById("subjectSelect").value;
+
+  setStatus("讀取中…");
+  document.getElementById("debugBox").textContent = "讀取中…";
+
+  const { data, error } = await db
+    .from("study_plan_cells")
+    .select("*")
+    .eq("view_mode", currentView)
+    .eq("time_key", selectedTimeKey)
+    .eq("subject_key", subjectKey)
+    .maybeSingle();
+
+  if (error && error.code !== "PGRST116") {
+    console.error(error);
+    setStatus("讀取失敗", "warn");
+    document.getElementById("debugBox").textContent = "讀取失敗：\n" + JSON.stringify(error, null, 2);
+    return;
+  }
+
+  syncCurrentCellLabel();
+
+  if (!data) {
+    setStatus("目前沒有資料（將會新增）", "warn");
+    fillForm(null);
+  } else {
+    setStatus("已載入資料", "ok");
+    fillForm(data);
+  }
+}
+
+async function saveCell(e) {
+  e.preventDefault();
+
+  if (!selectedTimeKey) {
+    alert("請先選擇日期 / 週次 / 月份。");
+    return;
+  }
+
+  const subjectKey = document.getElementById("subjectSelect").value;
+  const payload = {
+    view_mode: currentView,
+    time_key: selectedTimeKey,
+    subject_key: subjectKey,
+    title: document.getElementById("titleInput").value.trim() || null,
+    note: document.getElementById("noteInput").value.trim() || null,
+    level: Number(document.getElementById("levelInput").value) || 1,
+    progress: Number(document.getElementById("progressInput").value) || 0
+  };
+
+  setStatus("儲存中…");
+  document.getElementById("debugBox").textContent = "儲存中…";
+
+  if (currentRecord && currentRecord.id) {
+    const { data, error } = await db
+      .from("study_plan_cells")
+      .update(payload)
+      .eq("id", currentRecord.id)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.error(error);
+      setStatus("儲存失敗", "warn");
+      document.getElementById("debugBox").textContent = "儲存失敗：\n" + JSON.stringify(error, null, 2);
+      return;
+    }
+
+    setStatus("已更新", "ok");
+    fillForm(data);
+  } else {
+    const { data, error } = await db
+      .from("study_plan_cells")
+      .insert(payload)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.error(error);
+      setStatus("新增失敗", "warn");
+      document.getElementById("debugBox").textContent = "新增失敗：\n" + JSON.stringify(error, null, 2);
+      return;
+    }
+
+    setStatus("新增成功", "ok");
+    fillForm(data);
+  }
+}
+
+async function deleteCell() {
+  if (!selectedTimeKey) {
+    alert("請先選擇要刪除的格子。");
+    return;
+  }
+
+  const subjectKey = document.getElementById("subjectSelect").value;
+
+  if (!confirm("確定要刪除此格資料嗎？")) return;
+
+  setStatus("刪除中…");
+  document.getElementById("debugBox").textContent = "刪除中…";
+
+  const { error } = await db
+    .from("study_plan_cells")
+    .delete()
+    .eq("view_mode", currentView)
+    .eq("time_key", selectedTimeKey)
+    .eq("subject_key", subjectKey);
+
+  if (error) {
+    console.error(error);
+    setStatus("刪除失敗", "warn");
+    document.getElementById("debugBox").textContent = "刪除失敗：\n" + JSON.stringify(error, null, 2);
+    return;
+  }
+
+  setStatus("已刪除", "ok");
+  fillForm(null);
 }
