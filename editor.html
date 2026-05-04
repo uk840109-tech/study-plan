@@ -2,15 +2,10 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Study Plan Editor</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  
-  <!-- Supabase CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  
-  <!-- Editor 樣式 -->
-  <link rel="stylesheet" href="editor.css" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="./editor.css?v=1.0.0" />
 </head>
 <body>
   <div id="loginScreen" class="login-screen">
@@ -23,69 +18,165 @@
     </div>
   </div>
 
-  <div id="appShell" class="app-shell" style="display:none;">
+  <div id="appShell" class="app-shell editor" style="display:none;">
     <header class="topbar">
-      <div>
-        <h1>Study Plan Editor</h1>
-        <p>讀書計畫編輯器</p>
+      <div class="brand">
+        <div class="brand-mark">編</div>
+        <div>
+          <h1>讀書計畫編輯後台</h1>
+          <p>Study Plan Editor / Supabase</p>
+        </div>
       </div>
-      <div class="topbar-badge">Editor</div>
+
+      <div class="toolbar">
+        <a
+          id="viewerLink"
+          href="./"
+          class="ghost-link"
+        >
+          返回主視圖
+        </a>
+      </div>
     </header>
 
-    <section class="editor-toolbar">
-      <div class="control-group">
-        <label for="viewSelect">檢視模式</label>
-        <select id="viewSelect">
-          <option value="day">日</option>
-          <option value="week">週</option>
-          <option value="month">月</option>
-        </select>
-      </div>
+    <main class="layout-editor">
+      <section class="panel selector-panel">
+        <div class="panel-head">
+          <div>
+            <h2>選擇要編輯的格子</h2>
+            <p>月模式用月份卡片；週 / 日模式用月曆</p>
+          </div>
+        </div>
 
-      <div class="control-group">
-        <label for="timeSelect">時間</label>
-        <select id="timeSelect"></select>
-      </div>
+        <section class="selector-form">
+          <div class="field">
+            <label>檢視模式</label>
+            <div class="view-switch" role="tablist">
+              <button type="button" class="view-btn active" data-view="month">月</button>
+              <button type="button" class="view-btn" data-view="week">週</button>
+              <button type="button" class="view-btn" data-view="day">日</button>
+            </div>
+          </div>
 
-      <div class="control-group">
-        <label for="subjectSelect">科目</label>
-        <select id="subjectSelect">
-          <option value="chinese">國文</option>
-          <option value="english">英文</option>
-          <option value="math">數學</option>
-          <option value="science">自然</option>
-          <option value="society">社會</option>
-          <option value="other">其他</option>
-        </select>
-      </div>
-    </section>
+          <div id="monthPickerSection" class="picker-section">
+            <div class="field">
+              <label>選擇月份</label>
+              <div id="monthCardGrid" class="month-card-grid"></div>
+            </div>
+          </div>
 
-    <section class="action-row">
-      <button id="saveBtn" class="primary-btn">儲存</button>
-      <button id="deleteBtn" class="danger-btn">刪除單格</button>
-      <button id="duplicateBtn">複製到下一期</button>
-      <button id="templateBtn">建立模板</button>
-      <button id="clearPeriodBtn">清空這期</button>
-    </section>
+          <div id="calendarSection" class="picker-section" style="display:none;">
+            <div class="field">
+              <label>選擇日期</label>
 
-    <section class="editor-panel">
-      <h3 id="editorTitle">載入中...</h3>
-      <textarea
-        id="contentInput"
-        placeholder="輸入這一格的讀書計畫內容，例如：國文課文整理、英文單字 30 個、自然重點複習、社會筆記整理、其他自主學習"
-      ></textarea>
-    </section>
+              <div class="calendar-shell">
+                <div class="calendar-header">
+                  <button type="button" class="calendar-nav" id="prevMonthBtn">‹</button>
+                  <div class="calendar-title" id="calendarTitle">2026年5月</div>
+                  <button type="button" class="calendar-nav" id="nextMonthBtn">›</button>
+                </div>
 
-    <section class="grid-panel">
-      <div class="panel-title">
-        <h2>格子快速選取</h2>
-        <p>點一下切換編輯目標</p>
-      </div>
-      <div id="planGrid"></div>
-    </section>
+                <div class="calendar-weekdays">
+                  <span>日</span>
+                  <span>一</span>
+                  <span>二</span>
+                  <span>三</span>
+                  <span>四</span>
+                  <span>五</span>
+                  <span>六</span>
+                </div>
+
+                <div id="calendarGrid" class="calendar-grid"></div>
+              </div>
+
+              <p class="hint" id="dateHint">點一天即可選擇；週模式會自動轉成該週。</p>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="subjectSelect">科目</label>
+            <select id="subjectSelect">
+              <option value="chinese">國文</option>
+              <option value="mathA">數學A</option>
+              <option value="science">自然（物理 / 化學 / 生物 / 地科）</option>
+              <option value="english">英文</option>
+              <option value="social">社會（歷史 / 地理 / 公民）</option>
+              <option value="other">其他</option>
+            </select>
+          </div>
+
+          <div class="selected-summary" id="selectedSummary">尚未選擇時間</div>
+
+          <button type="button" class="primary-btn" id="loadCellBtn">讀取這一格</button>
+
+          <section class="subject-note-card compact">
+            <h3>欄位格式說明（自動生成）</h3>
+            <ul>
+              <li>月：YYYY/MM</li>
+              <li>週：YYYY/MM Wn</li>
+              <li>日：YYYY/MM/DD</li>
+            </ul>
+          </section>
+        </section>
+      </section>
+
+      <section class="panel editor-panel">
+        <div class="panel-head">
+          <div>
+            <h2>編輯計畫內容</h2>
+            <p id="currentCellLabel">尚未選擇格子</p>
+          </div>
+          <span id="saveStatus" class="chip">尚未儲存</span>
+        </div>
+
+        <form id="editForm" class="editor-form">
+          <div class="field-row">
+            <div class="field">
+              <label for="titleInput">主題標題</label>
+              <input type="text" id="titleInput" placeholder="例如：數列與排列總整理" />
+            </div>
+            <div class="field">
+              <label for="levelInput">強度</label>
+              <select id="levelInput">
+                <option value="1">普通</option>
+                <option value="2">重點</option>
+                <option value="3">衝刺</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="noteInput">內容備註</label>
+            <textarea
+              id="noteInput"
+              rows="6"
+              placeholder="具體寫今天 / 本週 / 本月要完成的內容，之後在 viewer 就會看到"
+            ></textarea>
+          </div>
+
+          <div class="field">
+            <label for="progressInput">完成度</label>
+            <div class="range-row">
+              <input type="range" id="progressInput" min="0" max="100" value="0" />
+              <span id="progressLabel">0%</span>
+            </div>
+          </div>
+
+          <div class="editor-actions">
+            <button type="submit" class="primary-btn">儲存（新增或更新）</button>
+            <button type="button" class="ghost-btn" id="deleteBtn">刪除這一格</button>
+          </div>
+        </form>
+
+        <section class="subject-note-card compact">
+          <h3>目前資料（debug 用）</h3>
+          <pre id="debugBox">尚未載入</pre>
+        </section>
+      </section>
+    </main>
   </div>
 
-  <!-- Editor JS -->
-  <script src="editor.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./editor.js?v=1.0.0"></script>
 </body>
 </html>
