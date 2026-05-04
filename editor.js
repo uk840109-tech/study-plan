@@ -12,7 +12,7 @@ const subjectLabelMap = {
   other: "其他"
 };
 
-const START_DATE = new Date(2026, 4, 1);
+const START_DATE = new Date(2026, 4, 1); 
 const END_DATE = new Date(2027, 0, 18);
 
 let db = null;
