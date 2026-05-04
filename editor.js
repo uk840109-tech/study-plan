@@ -103,6 +103,15 @@ function parseMonthKey(str) {
   return new Date(y, m - 1, 1);
 }
 
+function parseWeekKey(str) {
+  const match = str.match(/^(\d{4})\/(\d{2}) W(\d+)$/);
+  if (!match) return null;
+  const y = Number(match[1]);
+  const m = Number(match[2]) - 1;
+  const weekNum = Number(match[3]);
+  return findMondayByMonthWeek(y, m, weekNum);
+}
+
 function getMonday(date) {
   const d = cloneDate(date);
   const day = d.getDay();
@@ -191,6 +200,47 @@ function getViewLabel(view) {
   return "月視圖";
 }
 
+function getNextTimeKey(view, timeKey) {
+  if (view === "month") {
+    const d = parseMonthKey(timeKey);
+    d.setMonth(d.getMonth() + 1);
+    return formatMonthKey(d);
+  }
+
+  if (view === "day") {
+    const d = parseDayKey(timeKey);
+    d.setDate(d.getDate() + 1);
+    return formatDayKey(d);
+  }
+
+  if (view === "week") {
+    const monday = parseWeekKey(timeKey);
+    if (!monday) return null;
+    monday.setDate(monday.getDate() + 7);
+    return getWeekKeyFromDate(monday);
+  }
+
+  return null;
+}
+
+function isValidTargetTimeKey(view, timeKey) {
+  if (!timeKey) return false;
+
+  if (view === "month") {
+    return /^\d{4}\/\d{2}$/.test(timeKey);
+  }
+
+  if (view === "day") {
+    return /^\d{4}\/\d{2}\/\d{2}$/.test(timeKey);
+  }
+
+  if (view === "week") {
+    return /^\d{4}\/\d{2} W\d+$/.test(timeKey);
+  }
+
+  return false;
+}
+
 /* UI 初始化 */
 
 function initEditorApp() {
@@ -232,6 +282,16 @@ function bindControls() {
   document.getElementById("loadCellBtn").addEventListener("click", loadCell);
   document.getElementById("editForm").addEventListener("submit", saveCell);
   document.getElementById("deleteBtn").addEventListener("click", deleteCell);
+
+  const duplicateNextBtn = document.getElementById("duplicateNextBtn");
+  if (duplicateNextBtn) {
+    duplicateNextBtn.addEventListener("click", duplicateToNextPeriod);
+  }
+
+  const duplicateTargetBtn = document.getElementById("duplicateTargetBtn");
+  if (duplicateTargetBtn) {
+    duplicateTargetBtn.addEventListener("click", duplicateToTargetPeriod);
+  }
 
   document.getElementById("progressInput").addEventListener("input", (e) => {
     document.getElementById("progressLabel").textContent = `${e.target.value}%`;
@@ -409,6 +469,33 @@ function validateBeforeSave() {
     alert("請先填寫內容備註。");
     document.getElementById("noteInput").focus();
     setDebugLines(["請先填寫內容備註。"], "warn");
+    return false;
+  }
+
+  return true;
+}
+
+function validateCurrentCellForDuplicate() {
+  const title = document.getElementById("titleInput").value.trim();
+  const note = document.getElementById("noteInput").value.trim();
+
+  if (!selectedTimeKey) {
+    alert("請先選擇來源日期 / 週次 / 月份。");
+    setDebugLines(["請先選擇來源日期 / 週次 / 月份。"], "warn");
+    return false;
+  }
+
+  if (!title) {
+    alert("請先填寫主題標題，再進行複製。");
+    document.getElementById("titleInput").focus();
+    setDebugLines(["請先填寫主題標題，再進行複製。"], "warn");
+    return false;
+  }
+
+  if (!note) {
+    alert("請先填寫內容備註，再進行複製。");
+    document.getElementById("noteInput").focus();
+    setDebugLines(["請先填寫內容備註，再進行複製。"], "warn");
     return false;
   }
 
@@ -594,7 +681,7 @@ function fillForm(data) {
   }
 }
 
-/* 資料庫 */
+/* DB */
 
 async function loadCell() {
   if (!selectedTimeKey) {
@@ -745,4 +832,117 @@ async function deleteCell() {
   fillForm(null);
   setDebugLines(["已刪除這一格資料。"], "ok");
   alert("刪除成功");
+}
+
+/* 複製功能 */
+
+function buildPayloadFromForm(targetTimeKey) {
+  const subjectKey = document.getElementById("subjectSelect").value;
+
+  return {
+    view_mode: currentView,
+    time_key: targetTimeKey,
+    subject_key: subjectKey,
+    title: document.getElementById("titleInput").value.trim(),
+    note: document.getElementById("noteInput").value.trim(),
+    level: Number(document.getElementById("levelInput").value) || 1,
+    progress: Number(document.getElementById("progressInput").value) || 0
+  };
+}
+
+async function duplicateToTarget(targetTimeKey) {
+  if (!validateCurrentCellForDuplicate()) return;
+
+  if (!isValidTargetTimeKey(currentView, targetTimeKey)) {
+    alert("目標期格式不正確。");
+    setDebugLines([`目標期格式不正確：${targetTimeKey}`], "warn");
+    return;
+  }
+
+  if (targetTimeKey === selectedTimeKey) {
+    alert("目標期不能和目前期別相同。");
+    setDebugLines(["目標期不能和目前期別相同。"], "warn");
+    return;
+  }
+
+  const payload = buildPayloadFromForm(targetTimeKey);
+
+  setStatus("複製中…");
+  setDebugLines([
+    `來源：${selectedTimeKey}`,
+    `目標：${targetTimeKey}`,
+    "複製中…"
+  ], "soft");
+
+  const { error } = await db
+    .from("study_plan_cells")
+    .upsert(payload, { onConflict: "view_mode,time_key,subject_key" });
+
+  if (error) {
+    console.error(error);
+    setStatus("複製失敗", "warn");
+    setDebugLines([
+      "複製失敗。",
+      `錯誤訊息：${error.message || "未知錯誤"}`,
+      `錯誤代碼：${error.code || "無"}`
+    ], "warn");
+    alert("複製失敗，請查看下方狀態訊息。");
+    return;
+  }
+
+  setStatus("複製成功", "ok");
+  setDebugLines([
+    `已將 ${selectedTimeKey} 複製到 ${targetTimeKey}。`,
+    `科目：${getSubjectLabel(document.getElementById("subjectSelect").value)}`
+  ], "ok");
+  alert(`已複製到 ${targetTimeKey}`);
+}
+
+async function duplicateToNextPeriod() {
+  if (!selectedTimeKey) {
+    alert("請先選擇目前格子。");
+    setDebugLines(["請先選擇目前格子。"], "warn");
+    return;
+  }
+
+  const nextTimeKey = getNextTimeKey(currentView, selectedTimeKey);
+
+  if (!nextTimeKey) {
+    alert("找不到下一期。");
+    setDebugLines(["找不到下一期。"], "warn");
+    return;
+  }
+
+  const ok = confirm(`確定要把這一格複製到下一期 ${nextTimeKey} 嗎？`);
+  if (!ok) return;
+
+  await duplicateToTarget(nextTimeKey);
+}
+
+async function duplicateToTargetPeriod() {
+  if (!selectedTimeKey) {
+    alert("請先選擇目前格子。");
+    setDebugLines(["請先選擇目前格子。"], "warn");
+    return;
+  }
+
+  let formatHint = "YYYY/MM";
+  if (currentView === "week") formatHint = "YYYY/MM Wn";
+  if (currentView === "day") formatHint = "YYYY/MM/DD";
+
+  const targetTimeKey = prompt(`請輸入要複製到的目標期別（格式：${formatHint}）`);
+
+  if (targetTimeKey === null) return;
+
+  const cleanTarget = targetTimeKey.trim();
+  if (!cleanTarget) {
+    alert("你沒有輸入目標期別。");
+    setDebugLines(["你沒有輸入目標期別。"], "warn");
+    return;
+  }
+
+  const ok = confirm(`確定要把 ${selectedTimeKey} 複製到 ${cleanTarget} 嗎？`);
+  if (!ok) return;
+
+  await duplicateToTarget(cleanTarget);
 }
