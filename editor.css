@@ -8,7 +8,7 @@ body {
   background: linear-gradient(180deg, #f7f3ee 0%, #efe6db 100%);
   color: #2f241c;
 }
-
+ 
 .app-shell {
   max-width: 1200px;
   margin: 32px auto;
