@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>Study Plan Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Viewer 樣式 -->
+  <link rel="stylesheet" href="viewer.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1>讀書進度表</h1>
+        <p>Study Plan</p>
+      </div>
+
+      <div class="top-actions">
+        <div class="view-switch" role="tablist" aria-label="時間單位切換">
+          <button class="view-btn active" data-view="month">月</button>
+          <button class="view-btn" data-view="week">週</button>
+          <button class="view-btn" data-view="day">日</button>
+        </div>
+
+        <a
+          class="nav-link"
+          id="editorLink"
+          href="#"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          前往編輯
+        </a>
+      </div>
+    </header>
+
+    <div class="countdown-bar">
+      <span id="todayLabel">今天：--</span>
+      <span id="examCountdown">距離學測剩 -- 日</span>
+    </div>
+
+    <main class="content-grid">
+      <section class="planner-panel">
+        <div class="panel-head">
+          <div>
+            <h2>讀書計畫總覽</h2>
+            <p id="rangeLabel">2026/05 → 2026/01（月）</p>
+          </div>
+
+          <div class="status-block">
+            <span class="status-chip" id="dataStatus">載入中</span>
+            <span class="update-text" id="lastUpdated">最後更新：--</span>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="study-table">
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <aside class="side-panel">
+        <section class="summary-card">
+          <h3>總體資訊</h3>
+          <div class="metric-list">
+            <div class="metric-item">
+              <span>目前檢視</span>
+              <strong id="currentModeLabel">月計畫</strong>
+            </div>
+            <div class="metric-item">
+              <span>已規劃格數</span>
+              <strong id="filledCount">0</strong>
+            </div>
+            <div class="metric-item">
+              <span>平均完成度</span>
+              <strong id="avgProgress">0%</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="summary-card">
+          <h3>科目結構</h3>
+          <ul>
+            <li>國文</li>
+            <li>數學A</li>
+            <li>自然：物理 / 化學 / 生物 / 地科</li>
+            <li>英文</li>
+            <li>社會：歷史 / 地理 / 公民</li>
+            <li>其他</li>
+          </ul>
+        </section>
+
+        <!-- 頁面用途卡片 + 左上角咖啡色「閱」標誌都已移除 -->
+      </aside>
+    </main>
+  </div>
+
+  <!-- Viewer JS -->
+  <script src="viewer.js"></script>
+</body>
+</html>
