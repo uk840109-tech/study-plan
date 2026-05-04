@@ -503,3 +503,33 @@ select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.status-box {
+  display: grid;
+  gap: 8px;
+}
+
+.status-line {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(176, 141, 109, 0.25);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.status-line.soft {
+  color: var(--text-soft);
+}
+
+.status-line.ok {
+  background: #e8f4e8;
+  color: #355a35;
+  border-color: #bfd8bf;
+}
+
+.status-line.warn {
+  background: #fff1e8;
+  color: #8a4c32;
+  border-color: #e7c0ac;
+}
